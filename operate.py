@@ -1,3 +1,5 @@
+import time
+
 from net import *
 from queue import PriorityQueue
 
@@ -38,6 +40,7 @@ def operate(net, t, leak_value_allow):
         while not path_found:
             if t > 4 and [current_i, current_j] == [13, 6]:
                 print("tar", targets)
+                time.sleep(0.01)
             # A*算法实现
             q = PriorityQueue()
             q.put((0, current_i, current_j, []))
