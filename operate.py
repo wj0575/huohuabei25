@@ -8,13 +8,16 @@ def heuristic(i, j, goals):
     min_dist = min(abs(i - g[0]) + abs(j - g[1]) for g in goals)
     return min_dist * 0.8  # 可调节启发式权重
 
-def operate(net, t):
+def operate(net, t, leak_value_allow):
     car_position = car.position_list[t]
     queue = []
+    load_positions = get_load_position(t, net, car)
+    pack = []
     for dis in range(0, net.M + net.N + 1): # 按距离从小到大的顺序，处理各个节点上数据的去向。先构建队列
         for i in range(1, net.M + 1):
             for j in range(1, net.N + 1):
-                # print(i, j, net.node_status[i][j])
+                if [i, j] in load_positions:
+                    continue
                 if manhattan_distance(i, j, car_position[0], car_position[1]) == dis:
                     if net.node_status[i][j] == 5:
                         queue.append((i, j))
@@ -24,60 +27,76 @@ def operate(net, t):
     for i in range(1, net.M + 1):
         for j in range(1, net.N + 1):
             # 清空当前节点的信息，以备A*算法计算下一个时刻
-            net.node_status[i][j] = 0
+            if [i, j] not in load_positions:
+                net.node_status[i][j] = 0
             net.horizontal[i][j] = 0
             net.vertical[i][j] = 0
-    load_positions = get_load_position(t, net, car)
-    pack = []
     while queue:
         current_i, current_j = queue.pop(0)
-
-        # A*算法实现
-        q = PriorityQueue()
-        q.put((0, current_i, current_j, []))
-        came_from = {}
-        g_score = {(i, j): float('inf') for i in range(1, net.M + 1) for j in range(1, net.N + 1)}
-        g_score[(current_i, current_j)] = 0
-        f_score = {(i, j): float('inf') for i in range(1, net.M + 1) for j in range(1, net.N + 1)}
-        f_score[(current_i, current_j)] = heuristic(current_i, current_j, load_positions)
-
         path_found = []
-        while not q.empty():
-            _, i, j, path = q.get()
-            # 到达目标区域，并且该上传点未占满
-            if [i, j] in load_positions and net.node_status[i][j] + 5 <= net.bandwidth(i, j, t):
-                path_found = path + [[i, j]]
-                break
-            if len(path) > 20:
-                continue
-            # 扩展相邻节点（上下左右）
-            for di, dj, link_type in [(-1, 0, 'horizontal'), (1, 0, 'horizontal'),
-                                      (0, -1, 'vertical'), (0, 1, 'vertical')]:
-                ni, nj = i + di, j + dj
-                if 1 <= ni <= net.M and 1 <= nj <= net.N:
-                    # 检查链路带宽
-                    available_link = (10 - net.horizontal[min(i, ni)][j] if link_type == 'horizontal'
-                        else 10 - net.vertical[i][min(j, nj)])
+        targets = load_positions.copy()
+        while not path_found:
+            if t > 4 and [current_i, current_j] == [13, 6]:
+                print("tar", targets)
+            # A*算法实现
+            q = PriorityQueue()
+            q.put((0, current_i, current_j, []))
+            came_from = {}
+            g_score = {(i, j): float('inf') for i in range(1, net.M + 1) for j in range(1, net.N + 1)}
+            g_score[(current_i, current_j)] = 0
+            f_score = {(i, j): float('inf') for i in range(1, net.M + 1) for j in range(1, net.N + 1)}
+            f_score[(current_i, current_j)] = heuristic(current_i, current_j, targets)
 
-                    # 检查目标点的拥挤程度
-                    available_point = (10 - net.node_status[ni][nj] if [ni, nj] not in load_positions
-                                       else 10 + net.bandwidth(ni, nj, t) - net.node_status[ni][nj])
+            while not q.empty():
+                _, i, j, path = q.get()
+                # 到达目标区域，并且该上传点未占满
+                if ([i, j] in targets and net.node_status[i][j] + 5 <=
+                        (net.bandwidth(i, j, t) + 10 + leak_value_allow
+                        if [i, j] in load_positions else 10)):
+                    path_found = path + [[i, j]]
+                    break
+                if len(path) > 20:
+                    continue
+                # 扩展相邻节点（上下左右）
+                for di, dj, link_type in [(-1, 0, 'horizontal'), (1, 0, 'horizontal'),
+                                          (0, -1, 'vertical'), (0, 1, 'vertical')]:
+                    ni, nj = i + di, j + dj
+                    # 如果已经走过，不允许再走
+                    if (ni, nj) in came_from or [ni, nj] in path:
+                        continue
+                    if 1 <= ni <= net.M and 1 <= nj <= net.N:
+                        # 检查链路带宽
+                        available_link = (10 - net.horizontal[min(i, ni)][j] if link_type == 'horizontal'
+                            else 10 - net.vertical[i][min(j, nj)])
 
-                    if available_link < 5:
-                        continue # 带宽不足或者目标点完全占满
+                        # 检查目标点的拥挤程度
+                        available_point = (10 - net.node_status[ni][nj] if [ni, nj] not in targets
+                                           else 10 + net.bandwidth(ni, nj, t) - net.node_status[ni][nj])
 
-                    # 计算移动成本（带宽占用越高成本越高）
-                    tentative_g = g_score[(i, j)] + (10 - available_link) * 0.1 + (10 - available_point) * 0.1
+                        if available_link < 5:
+                            continue # 带宽不足或者目标点完全占满
 
-                    if tentative_g < g_score[(ni, nj)]:
-                        came_from[(ni, nj)] = (i, j)
-                        g_score[(ni, nj)] = tentative_g
-                        new_f = tentative_g + heuristic(ni, nj, load_positions)
-                        q.put((new_f, ni, nj, path + [[i, j]]))
-        # 记录最终路径或最近路径
-        if not path_found:
-            # 返回一个列表仅包含初始位置的坐标，即不动
-            path_found = [[current_i, current_j]]
+                        # 计算移动成本（带宽占用越高成本越高）
+                        tentative_g = g_score[(i, j)] + (10 - available_link) * 0.5 + (10 - available_point) * 0.5
+
+                        if tentative_g < g_score[(ni, nj)]:
+                            came_from[(ni, nj)] = (i, j)
+                            g_score[(ni, nj)] = tentative_g
+                            new_f = tentative_g + heuristic(ni, nj, targets)
+                            q.put((new_f, ni, nj, path + [[i, j]]))
+
+
+            # 将相邻targets中的相邻点加入targets
+            new_targets = targets.copy()
+            for target in targets:
+                for ai, aj in [[0, -1], [1, 0], [0, 1], [-1, 0]]:
+                    if (ai + target[0] < 1 or ai + target[0] > net.M or
+                            aj + target[1] < 1 or aj + target[1] > net.N):
+                        continue
+                    if [ai + target[0], aj + target[1]] not in new_targets:
+                        new_targets.append([ai + target[0], aj + target[1]])
+            targets = new_targets.copy()
+
         # 更新网络状态
         prev = path_found[0]
         for node in path_found[1:]:

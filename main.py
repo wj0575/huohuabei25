@@ -82,7 +82,7 @@ def set(t):
     generate_data(t)
     load_list = get_load_position(t, net, car)
     print("Time", t)
-    pack = operate(net, t)
+    pack = operate(net, t, leak_value_allow)
     delay_data = net.load(load_list, pack, leak_value_allow, t)
     print("delay_data", delay_data)
     for i in range(1, net.M + 1):
@@ -96,11 +96,6 @@ def set(t):
                 color = "red"
             else:
                 color = "black"
-            """if net.node_status[i][j] > 0:
-                if net.node_status[i][j] == 5:
-                    text += '■'
-                elif net.node_status[i][j] == 10:
-                    text += '■ ■'"""
             text += str(net.node_status[i][j])
             point_texts[i][j].config(text=text, font=("Consolas", 10), fg=color)
             # print(i, j)
