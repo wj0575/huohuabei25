@@ -38,9 +38,6 @@ def operate(net, t, leak_value_allow):
         path_found = []
         targets = load_positions.copy()
         while not path_found:
-            if t > 4 and [current_i, current_j] == [13, 6]:
-                print("tar", targets)
-                time.sleep(0.01)
             # A*算法实现
             q = PriorityQueue()
             q.put((0, current_i, current_j, []))
@@ -98,7 +95,11 @@ def operate(net, t, leak_value_allow):
                         continue
                     if [ai + target[0], aj + target[1]] not in new_targets:
                         new_targets.append([ai + target[0], aj + target[1]])
+            if targets == new_targets:
+                break
             targets = new_targets.copy()
+        if not path_found:
+            continue
 
         # 更新网络状态
         prev = path_found[0]
