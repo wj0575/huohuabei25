@@ -1,7 +1,7 @@
 net_M = 20
 net_N = 10 # 先写成10，之后改30
 # 网络有20个节点，10行
-T_TOTAL = 90
+
 # 系统运行总时长（秒）
 
 import random
@@ -64,8 +64,8 @@ class Net:
             for j in range(1, self.N+1):
                 if self.node_status[i][j] > self.limit:
                     self.node_status[i][j] = self.limit
-    def load(self, load_list, pack, leak_value_allow, t):
-        delay, load_sum = 0,0 # 计算这次上传的时延，单位为(ms*Mb)
+    def load(self, load_list, pack, leak_value_allow, t, data):
+        delay, delay_wait, delay_rest, load_sum = 0, 0, 0, 0 # 计算这次上传的时延，单位为(ms*Mb)
         details = {}
         for i, j in load_list:
             # 查找pack中结尾为[i, j]的路径
@@ -83,7 +83,8 @@ class Net:
                     data.add_data_out(5)
                     load_sum += 5
                     jump = lens.pop(0)
-                    delay += 5 * (50 * jump + 50 + t % 15 * 1000) # 延迟计算
+                    data.add_delay_wait(5 * (50 + t % 15 * 1000)) # 延迟计算
+                    data.add_delay_rest(5 * (50 * jump + 50))
                     available_bandwidth -= 5
                     print("节点", i, j, "上传5Mb", "时延", 50 * jump + 50 + t % 15 * 1000)
                 elif available_bandwidth + leak_value_allow >= 5:
@@ -91,13 +92,15 @@ class Net:
                     data.add_data_out(available_bandwidth)
                     load_sum += available_bandwidth
                     jump = lens.pop(0)
-                    print("节点", i, j, "上传", available_bandwidth, "Mb",
+                    print("节点", i, j, "上传" + str(available_bandwidth) + "Mb",
                           "时延", available_bandwidth * (50 * jump + 50 + t % 15 * 1000))
-                    delay += available_bandwidth * (50 * jump + 50 + t % 15 * 1000) # 延迟计算
+                    data.add_delay_wait(available_bandwidth * (50 + t % 15 * 1000))  # 延迟计算
+                    data.add_delay_rest(available_bandwidth * (50 * jump + 50))
                     available_bandwidth = 0
-
         return {
             "delay": delay,
+            "delay_wait": delay_wait,
+            "delay_rest": delay_rest,
             "load_sum": load_sum,
             "average_delay": 0 if load_sum == 0 else delay // load_sum,
             "details": details,
@@ -108,6 +111,8 @@ class Data:
     def __init__(self):
         self.data_in = 0
         self.data_out = 0
+        self.delay_wait = 0
+        self.delay_rest = 0
     def add_data_in(self, add_sum):
         self.data_in += add_sum
         return self.data_out
@@ -128,9 +133,15 @@ class Data:
         leak = self.cal_data_leak(target_net)
         percent = int((leak / self.data_in) * 100)
         return percent
+    def add_delay_wait(self, add_sum):
+        self.delay_wait += add_sum
+        return self.delay_wait
+    def add_delay_rest(self, add_sum):
+        self.delay_rest += add_sum
+        return self.delay_rest
+    def cal_delay(self):
+        return self.delay_wait + self.delay_rest
 
-net = Net()
-data = Data()
 
 class Car:
     def __init__(self, position_x, position_y, direction, net):
@@ -145,6 +156,7 @@ class Car:
                  14, 14, 14, 14, 14, 15, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16,
                  16, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17]
 
+        T_TOTAL = 90
         for t in range(T_TOTAL + 1):
             position = [route[t] + 1, position_y]
             self.position_list.append(position)
@@ -152,7 +164,6 @@ class Car:
             [-1, 0], [0, 0], [1, 0], [-1, 1], [0, 1], [1, 1],
         ]
 
-car = Car(position_x=2, position_y=5, direction=1, net=net)
 
 def get_load_position(t, net, car):
     car_position = []
@@ -160,7 +171,19 @@ def get_load_position(t, net, car):
         car_position.append([car.position_list[t][0] + adder[0], car.position_list[t][1] + adder[1]])
     return car_position
 
-def generate_data(t):
+def get_in_position(t, net, car):
+    """由于下个时刻传感器接收到的数据可能与这一时刻结束时传到该传感器的数据冲突，导致溢出，
+    所以有必要用此函数判断下个时刻即将接收数据的传感器位置，方便路径规划使用"""
+    in_position = []
+    if t % 15 == 0 or t % 15 == 14:
+        for i in range(1, net.M + 1):
+            for j in range(1, net.N + 1):
+                in_position.append([i, j])
+        return in_position
+    else:
+        return []
+
+def generate_data(t, net, data):
     if t % 15 != 0 and t % 15 != 1:
         return
     if t % 30 == 0 or t % 30 == 1:
@@ -177,13 +200,3 @@ def generate_data(t):
     net.check(data) # 检查是否有溢出
 
 
-# 测试区域
-if __name__ == "__main__":
-    """print(net.node_bandwidth_max[1][1])
-    for i in range(30):
-        print(net.bandwidth(1, 1, i))"""
-    for t in range(T_TOTAL + 1):
-        print("t="+str(t).ljust(5), end="")
-        for i in range(1, net.M+1):
-            print(net.bandwidth(i, 5, t), end='\t')
-        print()

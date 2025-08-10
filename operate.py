@@ -1,5 +1,3 @@
-import time
-
 from net import *
 from queue import PriorityQueue
 
@@ -10,10 +8,11 @@ def heuristic(i, j, goals):
     min_dist = min(abs(i - g[0]) + abs(j - g[1]) for g in goals)
     return min_dist * 0.8  # 可调节启发式权重
 
-def operate(net, t, leak_value_allow):
+def operate(net, car, t, leak_value_allow):
     car_position = car.position_list[t]
     queue = []
     load_positions = get_load_position(t, net, car)
+    in_positions = get_in_position(t, net, car)
     pack = []
     for dis in range(0, net.M + net.N + 1): # 按距离从小到大的顺序，处理各个节点上数据的去向。先构建队列
         for i in range(1, net.M + 1):
@@ -52,7 +51,8 @@ def operate(net, t, leak_value_allow):
                 # 到达目标区域，并且该上传点未占满
                 if ([i, j] in targets and net.node_status[i][j] + 5 <=
                         (net.bandwidth(i, j, t) + 10 + leak_value_allow
-                        if [i, j] in load_positions else 10)):
+                        if [i, j] in load_positions else 10) -
+                        (5 if [i, j] in in_positions else 0)):
                     path_found = path + [[i, j]]
                     break
                 if len(path) > 20:
@@ -70,8 +70,9 @@ def operate(net, t, leak_value_allow):
                             else 10 - net.vertical[i][min(j, nj)])
 
                         # 检查目标点的拥挤程度
-                        available_point = (10 - net.node_status[ni][nj] if [ni, nj] not in targets
-                                           else 10 + net.bandwidth(ni, nj, t) - net.node_status[ni][nj])
+                        available_point = (((10 - net.node_status[ni][nj]) if [ni, nj] not in targets
+                                           else (10 + net.bandwidth(ni, nj, t) - net.node_status[ni][nj])) -
+                                           5 if [ni, nj] in in_positions else 0)
 
                         if available_link < 5:
                             continue # 带宽不足或者目标点完全占满
