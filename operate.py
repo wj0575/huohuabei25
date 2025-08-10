@@ -8,7 +8,7 @@ def heuristic(i, j, goals):
     min_dist = min(abs(i - g[0]) + abs(j - g[1]) for g in goals)
     return min_dist * 0.8  # 可调节启发式权重
 
-def operate(net, car, t, leak_value_allow):
+def operate(net, car, t, leak_value_allow, A, B):
     car_position = car.position_list[t]
     queue = []
     load_positions = get_load_position(t, net, car)
@@ -77,8 +77,8 @@ def operate(net, car, t, leak_value_allow):
                         if available_link < 5:
                             continue # 带宽不足或者目标点完全占满
 
-                        # 计算移动成本（带宽占用越高成本越高）
-                        tentative_g = g_score[(i, j)] + (10 - available_link) * 0.5 + (10 - available_point) * 0.5
+                        # 计算移动成本（带宽占用越高成本越高）A表示带宽占用权重，B表示目标点拥挤度权重
+                        tentative_g = g_score[(i, j)] + (10 - available_link) * A + (10 - available_point) * B
 
                         if tentative_g < g_score[(ni, nj)]:
                             came_from[(ni, nj)] = (i, j)
@@ -116,7 +116,6 @@ def operate(net, car, t, leak_value_allow):
         end_i, end_j = path_found[-1]
         net.node_status[end_i][end_j] += 5
 
-        print(path_found)
         pack.append(path_found)
     return pack
 

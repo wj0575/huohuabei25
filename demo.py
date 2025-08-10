@@ -4,11 +4,9 @@ import ctypes
 
 T_TOTAL = 90
 
-leak_value_allow = 0
-
 global net_M, net_N
 
-def demo(leak_value_allow, A, B):
+def demo(leak_value_allow, A, B, auto_update=False):
     # 初始化时间变量
     global current_t
     current_t = 0
@@ -36,7 +34,6 @@ def demo(leak_value_allow, A, B):
     color_ltblue = "#BBBBF6"
     color_white = "#ffffff"
     color_grey = "#888888"
-    color_black = "#000000"
 
     control_frame = tk.Frame(root, bg=color_grey)
     control_frame.place(relx=0.6, rely=0.05, relwidth=0.8, relheight=0.18, anchor="center")
@@ -81,13 +78,19 @@ def demo(leak_value_allow, A, B):
                 link_texts_vertical[i].append(tk.Label(display, bg=color_grey))
                 link_texts_vertical[i][-1].place(relx=0.05 * i - 0.025, rely=0.1 * j,
                                                 relwidth=0.005, relheight=0.04, anchor="center")
+        # 记录这一秒的运行状态
+
 
     from operate import generate_data, get_load_position, operate
     def set(t):
         generate_data(t, net, data)
         load_list = get_load_position(t, net, car)
-        pack = operate(net, car, t, leak_value_allow)
+        pack = operate(net, car, t, leak_value_allow, A, B)
+        data.result["path"].append(pack) # 在result中记录这一秒的路径
         delay_data = net.load(load_list, pack, leak_value_allow, t, data)
+        data.result["delay_average"].append(data.cal_delay() // data.data_out)
+        data.result["delay_wait"].append(delay_data["delay_wait"])
+        data.result["delay_rest"].append(delay_data["delay_rest"])
         for i in range(1, net.M + 1):
             text = str(net.bandwidth(i, 5, t)) + "Mb"
             point_texts[i][0].config(text=text, font=("Consolas", 15), fg="blue")
@@ -127,14 +130,14 @@ def demo(leak_value_allow, A, B):
     def next_second():
         global current_t, T_TOTAL
         current_t += 1
-        text = "Time: " + str(current_t) + " Mb\n"
+        text = "Time: " + str(current_t) + " s\n"
         text += "Data In: " + str(data.data_in) + " Mb\n"
         text += "Data Out: " + str(data.data_out) + " Mb\n"
         text += "Data In Net: " + str(data.cal_data_in_net(net)) + " Mb\n"
         text += "Data Leak: " + str(data.cal_data_leak(net)) + " Mb\n"
         text += "Data Leak Percent: " + str(data.cal_leak_percent(net)) + " %\n"
         text += "\n"
-        text += "Average Delay: " + str(data.delay // data.data_out) + "msn"
+        text += "Average Delay: " + str(data.cal_delay() // data.data_out) + "ms\n"
         text += "Average Delay Wait: " + str(data.delay_wait // data.data_out) + "ms\n"
         text += "Average Delay Rest: " + str(data.delay_rest // data.data_out) + "ms\n"
         # 左对齐
@@ -143,11 +146,32 @@ def demo(leak_value_allow, A, B):
             # 关闭窗口
             root.destroy()
             return
-        time_text.config(text=text, font=("Consolas", 16), fg="white", justify=tk.LEFT)
+        time_text.config(text=text, font=("Consolas", 12), fg="white", justify=tk.LEFT)
 
         set(current_t)
 
     button.config(command=next_second)
     current_t = 0
     set(current_t)
-    root.mainloop()
+
+    def auto_update():
+        if current_t <= T_TOTAL:
+            root.after(100, auto_update)
+        next_second()
+    if auto_update:
+        auto_update()  # 启动自动刷新
+    root.mainloop() # 窗口运行显示状态
+
+    data.result["summary"] = {
+        "leak_value_allow": leak_value_allow,
+        "A": A,
+        "B": B,
+        "run_time": len(data.result["path"]) - 1,
+        "data_in": data.data_in,
+        "data_leak": data.data_in - data.data_out,
+        "data_leak_percent": (data.data_in - data.data_out) / data.data_in,
+        "average_delay": data.result["delay_average"][-1],
+        "average_delay_wait": data.result["delay_wait"][-1] // data.data_out,
+        "average_delay_rest": data.result["delay_rest"][-1] // data.data_out,
+    }
+    return data.result.copy()

@@ -65,7 +65,7 @@ class Net:
                 if self.node_status[i][j] > self.limit:
                     self.node_status[i][j] = self.limit
     def load(self, load_list, pack, leak_value_allow, t, data):
-        delay, delay_wait, delay_rest, load_sum = 0, 0, 0, 0 # 计算这次上传的时延，单位为(ms*Mb)
+        delay, load_sum = 0, 0 # 计算这次上传的时延，单位为(ms*Mb)
         details = {}
         for i, j in load_list:
             # 查找pack中结尾为[i, j]的路径
@@ -74,7 +74,7 @@ class Net:
                 if path[-1] == [i, j]:
                     lens.append(len(path) - 1)
             lens.sort() # 记录各条数据到达上传点的传输跳数，以备计算时延
-            print("节点", i, j, "传输跳数", lens, "节点信息量", self.node_status[i][j])
+            # print("节点", i, j, "传输跳数", lens, "节点信息量", self.node_status[i][j])
             available_bandwidth = self.bandwidth(i, j, t)
             while available_bandwidth >= 5 - leak_value_allow and len(lens) > 0:
                 # print(available_bandwidth, lens)
@@ -86,21 +86,21 @@ class Net:
                     data.add_delay_wait(5 * (50 + t % 15 * 1000)) # 延迟计算
                     data.add_delay_rest(5 * (50 * jump + 50))
                     available_bandwidth -= 5
-                    print("节点", i, j, "上传5Mb", "时延", 50 * jump + 50 + t % 15 * 1000)
+                    # print("节点", i, j, "上传5Mb", "时延", 50 * jump + 50 + t % 15 * 1000)
                 elif available_bandwidth + leak_value_allow >= 5:
                     self.node_status[i][j] -= available_bandwidth
                     data.add_data_out(available_bandwidth)
                     load_sum += available_bandwidth
                     jump = lens.pop(0)
-                    print("节点", i, j, "上传" + str(available_bandwidth) + "Mb",
-                          "时延", available_bandwidth * (50 * jump + 50 + t % 15 * 1000))
+                    """print("节点", i, j, "上传" + str(available_bandwidth) + "Mb",
+                          "时延", available_bandwidth * (50 * jump + 50 + t % 15 * 1000))"""
                     data.add_delay_wait(available_bandwidth * (50 + t % 15 * 1000))  # 延迟计算
                     data.add_delay_rest(available_bandwidth * (50 * jump + 50))
                     available_bandwidth = 0
         return {
             "delay": delay,
-            "delay_wait": delay_wait,
-            "delay_rest": delay_rest,
+            "delay_wait": data.delay_wait,
+            "delay_rest": data.delay_rest,
             "load_sum": load_sum,
             "average_delay": 0 if load_sum == 0 else delay // load_sum,
             "details": details,
@@ -113,6 +113,13 @@ class Data:
         self.data_out = 0
         self.delay_wait = 0
         self.delay_rest = 0
+        self.result = result = {
+            "path":[],
+            "delay_average":[],
+            "delay_wait":[],
+            "delay_rest":[],
+            "leak_percent":[],
+        }
     def add_data_in(self, add_sum):
         self.data_in += add_sum
         return self.data_out
@@ -175,7 +182,7 @@ def get_in_position(t, net, car):
     """由于下个时刻传感器接收到的数据可能与这一时刻结束时传到该传感器的数据冲突，导致溢出，
     所以有必要用此函数判断下个时刻即将接收数据的传感器位置，方便路径规划使用"""
     in_position = []
-    if t % 15 == 0 or t % 15 == 14:
+    if t % 15 == 0 or t % 15 == 14 and t < 89:
         for i in range(1, net.M + 1):
             for j in range(1, net.N + 1):
                 in_position.append([i, j])
@@ -184,7 +191,7 @@ def get_in_position(t, net, car):
         return []
 
 def generate_data(t, net, data):
-    if t % 15 != 0 and t % 15 != 1:
+    if t % 15 != 0 and t % 15 != 1 or t >= 90:
         return
     if t % 30 == 0 or t % 30 == 1:
         # 偶数行所有节点产生一个5Mb信号
